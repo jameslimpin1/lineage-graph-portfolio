@@ -1,0 +1,1323 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no" />
+<title>James Limpin&#39;s lineage graph</title>
+<meta name="description" content="James Limpin — data engineer. An interactive dbt-style lineage graph portfolio." />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Patrick+Hand&family=Caveat:wght@500;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/roughjs@4.6.6/bundled/rough.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dagre@0.8.5/dist/dagre.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+<style>
+:root{
+  --paper:#f6f1e4;
+  --paper-line:#c9dcf0;
+  --paper-margin:#f2b8c6;
+  --ink:#2e2e33;
+  --ink-soft:#5a5a63;
+  --ballpoint:#2f4b8c;
+  --hi-yellow:#ffe066;
+  --hi-pink:#ffb3c6;
+  --hi-green:#a8e6a1;
+  --src-fill:#8fd19e;
+  --src-stroke:#3f8a52;
+  --stg-fill:#8ecae6;
+  --stg-stroke:#1f6fa8;
+  --int-fill:#c9b6e4;
+  --int-stroke:#6c4fa0;
+  --mart-fill:#ffe066;
+  --mart-stroke:#b8860b;
+  --exp-fill:#ffb37a;
+  --exp-stroke:#c9660a;
+  --panel-bg:#fffdf6;
+  --panel-shadow:rgba(0,0,0,0.25);
+  --fade-opacity:0.18;
+  --font-hand: 'Patrick Hand', cursive;
+  --font-script: 'Caveat', cursive;
+  --font-mono: 'Space Mono', monospace;
+  --focus-ring: #ff5da2;
+}
+:root[data-theme="dark"]{
+  --paper:#14201a;
+  --paper-line:#24413a;
+  --paper-margin:#3a2530;
+  --ink:#eef3ee;
+  --ink-soft:#b9c8bf;
+  --ballpoint:#9fd6ff;
+  --hi-yellow:#e8d97a;
+  --hi-pink:#e79bc0;
+  --hi-green:#9fdca0;
+  --src-fill:#1f3d2a;
+  --src-stroke:#8fe6a0;
+  --stg-fill:#1c3346;
+  --stg-stroke:#8fd0f0;
+  --int-fill:#2c1f45;
+  --int-stroke:#c9a8f5;
+  --mart-fill:#4a3d10;
+  --mart-stroke:#f0d060;
+  --exp-fill:#4a2a10;
+  --exp-stroke:#f0a860;
+  --panel-bg:#182620;
+  --panel-shadow:rgba(0,0,0,0.6);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#14201a;
+    --paper-line:#24413a;
+    --paper-margin:#3a2530;
+    --ink:#eef3ee;
+    --ink-soft:#b9c8bf;
+    --ballpoint:#9fd6ff;
+    --hi-yellow:#e8d97a;
+    --hi-pink:#e79bc0;
+    --hi-green:#9fdca0;
+    --src-fill:#1f3d2a;
+    --src-stroke:#8fe6a0;
+    --stg-fill:#1c3346;
+    --stg-stroke:#8fd0f0;
+    --int-fill:#2c1f45;
+    --int-stroke:#c9a8f5;
+    --mart-fill:#4a3d10;
+    --mart-stroke:#f0d060;
+    --exp-fill:#4a2a10;
+    --exp-stroke:#f0a860;
+    --panel-bg:#182620;
+    --panel-shadow:rgba(0,0,0,0.6);
+  }
+}
+*{box-sizing:border-box;}
+html,body{
+  margin:0;padding:0;width:100%;height:100%;overflow:hidden;
+  background:var(--paper);
+  color:var(--ink);
+  font-family:var(--font-hand);
+}
+body{
+  background-image:
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0px, transparent 27px,
+      var(--paper-line) 27px, var(--paper-line) 29px
+    );
+  position:relative;
+}
+body::before{
+  content:"";
+  position:absolute; top:0; left:64px; bottom:0; width:2px;
+  background:var(--paper-margin);
+  opacity:0.55;
+  pointer-events:none;
+  z-index:1;
+}
+.coffee-ring{
+  position:absolute;
+  width:150px;height:150px;
+  border-radius:50%;
+  border:6px solid rgba(120,80,40,0.13);
+  bottom:20px; right:40px;
+  pointer-events:none;
+  z-index:1;
+}
+.coffee-ring::after{
+  content:"";
+  position:absolute; inset:18px;
+  border-radius:50%;
+  border:3px solid rgba(120,80,40,0.09);
+}
+:root[data-theme="dark"] .coffee-ring, :root:not([data-theme="light"]) .coffee-ring{
+  display:none;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]) .coffee-ring{display:none;}
+}
+
+/* Header */
+header.title-block{
+  position:absolute; top:14px; left:78px; z-index:20;
+  pointer-events:none;
+}
+header.title-block h1{
+  font-family:var(--font-script);
+  font-size:2.1rem;
+  margin:0;
+  color:var(--ink);
+  transform:rotate(-1deg);
+  text-shadow: 1px 1px 0 rgba(0,0,0,0.04);
+}
+header.title-block p{
+  font-family:var(--font-hand);
+  font-size:1.05rem;
+  margin:2px 0 0 4px;
+  color:var(--ink-soft);
+}
+
+/* Top controls */
+.controls-wrap{
+  position:absolute; top:14px; right:16px; z-index:30;
+  display:flex; gap:8px; align-items:flex-start;
+}
+button.icon-btn{
+  font-family:var(--font-hand);
+  background:var(--panel-bg);
+  border:2px solid var(--ink);
+  border-radius:10px 12px 9px 13px;
+  padding:8px 14px;
+  cursor:pointer;
+  font-size:1rem;
+  color:var(--ink);
+  box-shadow:2px 2px 0 rgba(0,0,0,0.15);
+}
+button.icon-btn:hover{ transform:translateY(-1px); }
+button.icon-btn:focus-visible, .node-g:focus-visible, .chip:focus-visible, input:focus-visible{
+  outline:3px solid var(--focus-ring);
+  outline-offset:2px;
+}
+#runBtn{ background:var(--hi-green); }
+#runBtn.running{ opacity:0.7; cursor:progress; }
+
+/* Selector bar */
+.selector-bar{
+  position:absolute; top:78px; left:50%; transform:translateX(-50%);
+  z-index:25; width:min(640px, 86vw);
+  display:flex; flex-direction:column; gap:6px;
+  align-items:center;
+}
+.selector-input-row{
+  display:flex; width:100%; gap:6px;
+}
+.selector-input-row input{
+  flex:1;
+  font-family:var(--font-mono);
+  font-size:0.85rem;
+  padding:9px 12px;
+  border-radius:8px;
+  border:2px solid var(--ink);
+  background:var(--panel-bg);
+  color:var(--ink);
+}
+.selector-input-row button{
+  font-family:var(--font-hand);
+  border:2px solid var(--ink);
+  border-radius:8px;
+  background:var(--hi-yellow);
+  padding:0 14px;
+  cursor:pointer;
+}
+.chips-row{
+  display:flex; flex-wrap:wrap; gap:6px; justify-content:center;
+}
+.chip{
+  font-family:var(--font-mono);
+  font-size:0.72rem;
+  background:var(--panel-bg);
+  border:1.5px dashed var(--ink-soft);
+  border-radius:14px;
+  padding:3px 10px;
+  cursor:pointer;
+  color:var(--ink-soft);
+}
+.chip:hover{ border-color:var(--ballpoint); color:var(--ballpoint); }
+
+/* Canvas */
+#canvas-container{
+  position:absolute; inset:0; z-index:5;
+}
+svg#dag-svg{ width:100%; height:100%; display:block; cursor:grab; }
+svg#dag-svg.grabbing{ cursor:grabbing; }
+
+.node-g{ cursor:pointer; }
+.node-g .node-label{
+  font-family:var(--font-mono);
+  font-size:10.5px;
+  fill:var(--ink);
+  pointer-events:none;
+  user-select:none;
+}
+.node-g .node-sublabel{
+  font-family:var(--font-hand);
+  font-size:10px;
+  fill:var(--ink-soft);
+  pointer-events:none;
+  user-select:none;
+}
+.edge-path{
+  fill:none;
+  stroke:var(--ink-soft);
+  stroke-width:1.6;
+  opacity:0.8;
+}
+.edge-path.highlighted{
+  stroke:var(--ballpoint);
+  stroke-width:2.4;
+  opacity:1;
+  stroke-dasharray:6 4;
+  animation:dash-flow 0.9s linear infinite;
+}
+@media (prefers-reduced-motion: reduce){
+  .edge-path.highlighted{ animation:none; }
+}
+@keyframes dash-flow{ to{ stroke-dashoffset:-20; } }
+
+.faded{ opacity:var(--fade-opacity); transition:opacity 0.25s ease; }
+.not-faded{ opacity:1; transition:opacity 0.25s ease; }
+
+.test-badge{
+  cursor:help;
+}
+.test-badge circle{ fill:var(--panel-bg); stroke:var(--ink); stroke-width:1.3; }
+.test-badge text{ font-family:var(--font-hand); font-size:11px; fill:var(--src-stroke); }
+
+/* Doodles */
+.doodle{ pointer-events:none; font-family:var(--font-script); fill:var(--ink-soft); opacity:0.8; }
+
+/* Legend sticky note */
+.legend{
+  position:absolute; bottom:18px; left:16px; z-index:20;
+  background:var(--hi-yellow);
+  color:#2e2e33;
+  padding:12px 14px;
+  width:190px;
+  font-family:var(--font-hand);
+  font-size:0.82rem;
+  border-radius:2px;
+  box-shadow:3px 4px 8px rgba(0,0,0,0.25);
+  transform:rotate(-2deg);
+  line-height:1.5;
+}
+.legend h4{ margin:0 0 6px 0; font-family:var(--font-script); font-size:1.1rem; }
+.legend .row{ display:flex; align-items:center; gap:6px; margin-bottom:2px;}
+.legend .swatch{ width:12px; height:12px; border-radius:3px; display:inline-block; border:1.5px solid var(--ink);}
+:root[data-theme="dark"] .legend, :root:not([data-theme="light"]) .legend{
+  background:#3a3416; color:#eef3ee;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]) .legend{ background:#3a3416; color:#eef3ee; }
+}
+
+/* Side panel */
+#side-panel{
+  position:fixed; top:0; right:-460px; width:440px; max-width:92vw; height:100%;
+  background:var(--panel-bg);
+  box-shadow:-6px 0 18px var(--panel-shadow);
+  z-index:60;
+  transition:right 0.35s ease;
+  display:flex; flex-direction:column;
+  border-left:3px solid var(--ink);
+  background-image: repeating-linear-gradient(to bottom, transparent 0 26px, var(--paper-line) 26px 28px);
+}
+#side-panel.open{ right:0; }
+@media (prefers-reduced-motion: reduce){ #side-panel{ transition:none; } }
+.panel-tape{
+  position:absolute; top:-10px; left:50%; transform:translateX(-50%) rotate(-2deg);
+  width:110px; height:26px; background:rgba(255,255,255,0.55);
+  border:1px solid rgba(0,0,0,0.08);
+}
+:root[data-theme="dark"] .panel-tape, :root:not([data-theme="light"]) .panel-tape{
+  background:rgba(255,255,255,0.12);
+}
+.panel-header{ padding:26px 20px 10px 20px; }
+.panel-header .layer-tag{
+  font-family:var(--font-mono); font-size:0.7rem; text-transform:uppercase;
+  letter-spacing:1px; color:var(--ink-soft);
+}
+.panel-header h2{
+  font-family:var(--font-mono); font-size:1.3rem; margin:4px 0 6px 0; color:var(--ink);
+  word-break:break-word;
+}
+.panel-header .tags{ display:flex; flex-wrap:wrap; gap:5px; margin-top:6px; }
+.panel-header .tag-pill{
+  font-family:var(--font-mono); font-size:0.65rem;
+  background:var(--hi-pink); padding:2px 8px; border-radius:10px; color:#2e2e33;
+}
+.panel-tabs{
+  display:flex; gap:4px; padding:0 16px; border-bottom:2px solid var(--ink);
+}
+.panel-tab-btn{
+  font-family:var(--font-hand); font-size:0.95rem;
+  background:none; border:none; border-bottom:3px solid transparent;
+  padding:8px 10px; cursor:pointer; color:var(--ink-soft);
+}
+.panel-tab-btn[aria-selected="true"]{
+  color:var(--ink); border-bottom-color:var(--ballpoint); font-weight:bold;
+}
+.panel-body{ flex:1; overflow-y:auto; overflow-x:hidden; padding:16px 20px 40px 20px; }
+.panel-body[hidden]{ display:none; }
+.panel-body p{ line-height:1.5; font-size:1.02rem; }
+.panel-body table{ width:100%; border-collapse:collapse; font-family:var(--font-mono); font-size:0.8rem; }
+.panel-body td, .panel-body th{ text-align:left; padding:6px 4px; border-bottom:1px dashed var(--ink-soft); vertical-align:top; }
+.panel-body pre{
+  font-family:var(--font-mono); font-size:0.78rem; background:rgba(0,0,0,0.05);
+  padding:12px; border-radius:6px; white-space:pre-wrap; word-break:break-word;
+  border-left:3px solid var(--ballpoint);
+}
+.panel-links{ margin-top:14px; display:flex; flex-wrap:wrap; gap:8px; }
+.panel-links a{
+  font-family:var(--font-hand); text-decoration:none; color:var(--ballpoint);
+  border:1.5px solid var(--ballpoint); padding:5px 10px; border-radius:8px;
+}
+.close-btn{
+  position:absolute; top:8px; right:10px; background:none; border:none;
+  font-size:1.4rem; cursor:pointer; color:var(--ink); font-family:var(--font-hand);
+}
+.mini-lineage{ display:flex; align-items:center; justify-content:space-between; gap:4px; margin-top:8px; max-width:100%; }
+.mini-col{ display:flex; flex-direction:column; gap:6px; flex:1; min-width:0; }
+.mini-col.center{ align-items:center; flex:0 0 auto; }
+.mini-node{
+  font-family:var(--font-mono); font-size:0.64rem; text-align:center;
+  padding:6px 6px; border-radius:6px; border:1.5px solid var(--ink); cursor:pointer;
+  background:var(--panel-bg); word-break:break-word; white-space:normal;
+}
+.mini-node.self{ background:var(--hi-yellow); font-weight:bold; cursor:default; }
+.mini-arrow{ font-family:var(--font-hand); color:var(--ink-soft); }
+
+/* Terminal log overlay */
+#terminal{
+  position:fixed; bottom:16px; right:16px; z-index:70;
+  width:420px; max-width:88vw; max-height:280px;
+  background:#1b1f1b; color:#c9f7c9;
+  font-family:var(--font-mono); font-size:0.72rem;
+  border-radius:10px; border:2px solid var(--ink);
+  padding:10px 12px; overflow-y:auto;
+  box-shadow:3px 4px 12px rgba(0,0,0,0.4);
+  display:none;
+  white-space:pre-wrap;
+}
+#terminal.show{ display:block; }
+#terminal .line{ margin-bottom:2px; }
+#terminal .ok{ color:#8ce88c; }
+#terminal .done{ color:#ffe066; font-weight:bold; }
+
+/* Bottom sheet (mobile) */
+#bottom-sheet{
+  position:fixed; left:0; right:0; bottom:-100%; height:70%;
+  background:var(--panel-bg); border-top:3px solid var(--ink);
+  border-radius:16px 16px 0 0; z-index:60;
+  transition:bottom 0.3s ease; display:flex; flex-direction:column;
+  box-shadow:0 -6px 18px var(--panel-shadow);
+}
+#bottom-sheet.open{ bottom:0; }
+@media (prefers-reduced-motion: reduce){ #bottom-sheet{ transition:none; } }
+.sheet-handle{ width:44px; height:5px; background:var(--ink-soft); border-radius:3px; margin:8px auto; }
+
+.sr-only{
+  position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden;
+  clip:rect(0,0,0,0); white-space:nowrap; border:0;
+}
+
+@media (max-width:760px){
+  header.title-block{ left:12px; top:8px; max-width:56vw; }
+  header.title-block h1{ font-size:1.05rem; line-height:1.15; }
+  header.title-block p{ font-size:0.62rem; line-height:1.25; margin-top:3px; }
+  .controls-wrap{ top:8px; gap:5px; }
+  .controls-wrap button.icon-btn{ padding:6px 9px; font-size:0.78rem; }
+  .selector-bar{ top:78px; width:92vw; }
+  .selector-input-row input{ font-size:0.72rem; padding:7px 9px; }
+  .chips-row{ display:none; }
+  .legend{ width:140px; font-size:0.68rem; bottom:8px; left:8px; padding:9px 10px; }
+  .legend h4{ font-size:0.95rem; }
+  #side-panel{ display:none; }
+}
+@media (min-width:761px){
+  #bottom-sheet{ display:none; }
+}
+</style>
+</head>
+<body>
+<div class="coffee-ring" aria-hidden="true"></div>
+
+<header class="title-block">
+  <h1>James's lineage graph</h1>
+  <p>data engineer &middot; remote (PH-based) &middot; turns messy data into pipelines that don't page anyone at 2am</p>
+</header>
+
+<div class="controls-wrap">
+  <button class="icon-btn" id="runBtn" title="Run the whole DAG, dbt-style">&#9654; dbt run</button>
+  <button class="icon-btn" id="themeBtn" title="Toggle chalkboard dark mode" aria-pressed="false">&#127763; mode</button>
+</div>
+
+<div class="selector-bar">
+  <div class="selector-input-row">
+    <label for="selectorInput" class="sr-only">dbt-style node selector</label>
+    <input id="selectorInput" type="text" placeholder="try +fct_realtime_pipeline or stg_python+ or tag:banking" autocomplete="off" />
+    <button id="selectorGoBtn">go</button>
+    <button id="selectorClearBtn" title="clear selection">&times;</button>
+  </div>
+  <div class="chips-row" id="chipsRow"></div>
+</div>
+
+<div id="canvas-container">
+  <svg id="dag-svg" role="img" aria-label="Interactive lineage graph of James Limpin's career, skills, and projects, drawn dbt-docs style">
+    <g id="zoom-layer">
+      <g id="doodle-layer"></g>
+      <g id="edges-layer"></g>
+      <g id="nodes-layer"></g>
+    </g>
+  </svg>
+</div>
+
+<div class="legend" aria-hidden="false">
+  <h4>legend</h4>
+  <div class="row"><span class="swatch" style="background:var(--src-fill);border-color:var(--src-stroke)"></span> sources — where I came from</div>
+  <div class="row"><span class="swatch" style="background:var(--stg-fill);border-color:var(--stg-stroke)"></span> stg_ — core skills</div>
+  <div class="row"><span class="swatch" style="background:var(--int-fill);border-color:var(--int-stroke)"></span> int_ — roles/experience</div>
+  <div class="row"><span class="swatch" style="background:var(--mart-fill);border-color:var(--mart-stroke)"></span> fct_/dim_ — projects</div>
+  <div class="row"><span class="swatch" style="background:var(--exp-fill);border-color:var(--exp-stroke)"></span> exposures — go here!</div>
+  <div style="margin-top:6px;font-size:0.7rem;">hover = trace lineage &middot; click = read docs</div>
+</div>
+
+<div id="terminal" role="status" aria-live="polite"></div>
+
+<!-- Desktop side panel -->
+<aside id="side-panel" aria-hidden="true" aria-labelledby="panelTitle">
+  <div class="panel-tape" aria-hidden="true"></div>
+  <button class="close-btn" id="closePanelBtn" aria-label="Close panel">&times;</button>
+  <div class="panel-header">
+    <div class="layer-tag" id="panelLayer">layer</div>
+    <h2 id="panelTitle">model_name</h2>
+    <div class="tags" id="panelTags"></div>
+  </div>
+  <div class="panel-tabs" role="tablist" id="panelTabs">
+    <button class="panel-tab-btn" role="tab" aria-selected="true" data-tab="description">Description</button>
+    <button class="panel-tab-btn" role="tab" aria-selected="false" data-tab="columns">Columns</button>
+    <button class="panel-tab-btn" role="tab" aria-selected="false" data-tab="code">Code</button>
+    <button class="panel-tab-btn" role="tab" aria-selected="false" data-tab="lineage">Lineage</button>
+  </div>
+  <div class="panel-body" id="tab-description" role="tabpanel"></div>
+  <div class="panel-body" id="tab-columns" role="tabpanel" hidden></div>
+  <div class="panel-body" id="tab-code" role="tabpanel" hidden></div>
+  <div class="panel-body" id="tab-lineage" role="tabpanel" hidden></div>
+</aside>
+
+<!-- Mobile bottom sheet -->
+<div id="bottom-sheet" aria-hidden="true" aria-labelledby="sheetTitle">
+  <div class="sheet-handle" aria-hidden="true"></div>
+  <button class="close-btn" id="closeSheetBtn" aria-label="Close">&times;</button>
+  <div class="panel-header">
+    <div class="layer-tag" id="sheetLayer">layer</div>
+    <h2 id="sheetTitle">model_name</h2>
+    <div class="tags" id="sheetTags"></div>
+  </div>
+  <div class="panel-tabs" role="tablist" id="sheetTabs">
+    <button class="panel-tab-btn" role="tab" aria-selected="true" data-tab="description">Description</button>
+    <button class="panel-tab-btn" role="tab" aria-selected="false" data-tab="columns">Columns</button>
+    <button class="panel-tab-btn" role="tab" aria-selected="false" data-tab="code">Code</button>
+    <button class="panel-tab-btn" role="tab" aria-selected="false" data-tab="lineage">Lineage</button>
+  </div>
+  <div class="panel-body" id="sheet-tab-description" role="tabpanel" style="overflow-y:auto;"></div>
+  <div class="panel-body" id="sheet-tab-columns" role="tabpanel" hidden style="overflow-y:auto;"></div>
+  <div class="panel-body" id="sheet-tab-code" role="tabpanel" hidden style="overflow-y:auto;"></div>
+  <div class="panel-body" id="sheet-tab-lineage" role="tabpanel" hidden style="overflow-y:auto;"></div>
+</div>
+
+<script>
+/* =========================================================================
+   CONTENT — edit this array to update the portfolio. Each model:
+   { id, layer, name, description, columns, sql, tags, depends_on, links, tests }
+   layer: 'source' | 'staging' | 'intermediate' | 'mart' | 'exposure'
+   ========================================================================= */
+const models = [
+  // ---------------- SOURCES ----------------
+  {
+    id: 'src_up_diliman', layer: 'source', name: 'src_up_diliman',
+    description: "Where the raw data starts. BS Chemical Engineering at the University of the Philippines Diliman — process flow diagrams, mass balances, and a lot of caffeine. Turns out thinking in unit operations and mass balances transfers surprisingly well to thinking in pipelines and DAGs.",
+    columns: [ {k:'institution', v:'University of the Philippines, Diliman'}, {k:'degree', v:'BS Chemical Engineering'}, {k:'era', v:'raw source, no transformations applied yet'} ],
+    sql: "select curiosity, stubbornness\nfrom src_up_diliman\nwhere major = 'chemical_engineering'\n-- freshness check: still valid",
+    tags: ['education'], depends_on: [], links: [],
+    tests: ['not_null: work_ethic']
+  },
+  {
+    id: 'src_pg_product_supply', layer: 'source', name: 'src_pg_product_supply',
+    description: "Previous career, before 'data engineer' was the job title. Product Supply Engineer at Procter & Gamble, working the Joy and Downy liquid manufacturing lines with technical SMEs on start-up/shut-down methods — cut utility and material cost by 80%. First taste of optimizing a real production system end-to-end.",
+    columns: [ {k:'role', v:'Product Supply Engineer'}, {k:'company', v:'Procter & Gamble'}, {k:'duration', v:'Aug 2021 – Mar 2022'}, {k:'impact', v:'80% cost reduction in utilities & materials'} ],
+    sql: "select lessons_learned\nfrom src_pg_product_supply\nwhere line in ('joy','downy')\n  and cost_reduction > 0.8",
+    tags: ['prior_career','supply_chain'], depends_on: [], links: [],
+    tests: []
+  },
+
+  // ---------------- STAGING ----------------
+  { id:'stg_python', layer:'staging', name:'stg_python',
+    description:"Cleaned, typed, ready-to-use Python. The connective tissue between every pipeline, script, and scraper I've written — from vendor-reconciliation extractors to ad-performance monitors.",
+    columns:[{k:'used_at',v:'IBM, Quantified Advertising, Henkel'},{k:'flavor',v:'pandas, requests, scripting, light ETL'}],
+    sql:"select * from stg_python where readable = true and 'works_on_my_machine' = false",
+    tags:['language'], depends_on:['src_up_diliman'], links:[], tests:['not_null: syntax_errors → 0'] },
+
+  { id:'stg_sql', layer:'staging', name:'stg_sql',
+    description:"The mother tongue. Used daily across every role to model, join, aggregate, and occasionally argue with a query planner.",
+    columns:[{k:'dialects',v:'Snowflake, BigQuery, MySQL'},{k:'comfort',v:'window functions, CTEs, the occasional recursive query'}],
+    sql:"select impact from stg_sql where clause = 'where' and mood = 'confident'",
+    tags:['language'], depends_on:['src_up_diliman'], links:[], tests:['unique: grain'] },
+
+  { id:'stg_dbt', layer:'staging', name:'stg_dbt',
+    description:"Modeling, testing, and documenting warehouse transformations the way this very site is themed after. Used at IBM to build tested, documented models on top of a Snowflake migration.",
+    columns:[{k:'used_at',v:'IBM'},{k:'features',v:'models, tests, docs, data contracts'}],
+    sql:"select model_name from stg_dbt where materialized = 'incremental'",
+    tags:['tool','banking'], depends_on:['src_up_diliman'], links:[], tests:[] },
+
+  { id:'stg_snowflake', layer:'staging', name:'stg_snowflake',
+    description:"Cloud warehouse of choice for the IBM engagement — migrated legacy infra here and got a 10x query speedup out of it.",
+    columns:[{k:'used_at',v:'IBM'},{k:'win',v:'10x faster queries, 80% lower ops overhead'}],
+    sql:"select query_time from stg_snowflake order by speedup desc limit 1",
+    tags:['warehouse','banking'], depends_on:['src_up_diliman'], links:[], tests:[] },
+
+  { id:'stg_airflow', layer:'staging', name:'stg_airflow',
+    description:"Orchestration for scheduled jobs and pipeline runs — DAGs before this site made DAGs fun.",
+    columns:[{k:'used_at',v:'IBM'},{k:'role',v:'scheduling, dependency management'}],
+    sql:"select * from stg_airflow where dag_status = 'success'",
+    tags:['tool'], depends_on:['src_pg_product_supply'], links:[], tests:[] },
+
+  { id:'stg_gcp_bigquery', layer:'staging', name:'stg_gcp_bigquery',
+    description:"GCP + BigQuery + duckDB for fast local and cloud-scale analytics work across client engagements.",
+    columns:[{k:'stack',v:'GCP, BigQuery, duckDB'}],
+    sql:"select * from stg_gcp_bigquery where cost_per_query < yesterday",
+    tags:['warehouse'], depends_on:['src_up_diliman'], links:[], tests:[] },
+
+  { id:'stg_aws', layer:'staging', name:'stg_aws',
+    description:"AWS for storage, compute, and the occasional Lambda glue job when a pipeline needed to live somewhere serverless.",
+    columns:[{k:'stack',v:'AWS'}],
+    sql:"select * from stg_aws where region = 'us-east-1' -- mostly",
+    tags:['warehouse'], depends_on:['src_up_diliman'], links:[], tests:[] },
+
+  { id:'stg_streamlit', layer:'staging', name:'stg_streamlit',
+    description:"Dashboarding and quick internal tools — PowerBI and Looker for stakeholder-facing reporting, Streamlit for fast internal prototypes.",
+    columns:[{k:'stack',v:'Streamlit, PowerBI, Looker'}],
+    sql:"select chart from stg_streamlit where stakeholder_happiness = 'high'",
+    tags:['dashboarding','marketing'], depends_on:['src_pg_product_supply'], links:[], tests:[] },
+
+  { id:'stg_vba_shell', layer:'staging', name:'stg_vba_shell',
+    description:"VBA and shell scripting — the unglamorous glue that automated Excel-heavy reconciliation processes and ad-hoc file wrangling in earlier BI roles.",
+    columns:[{k:'stack',v:'VBA, shell scripting'}],
+    sql:"select hours_saved from stg_vba_shell where automation = 'quiet_hero'",
+    tags:['language','supply_chain'], depends_on:['src_pg_product_supply'], links:[], tests:[] },
+
+  { id:'stg_github_cicd', layer:'staging', name:'stg_github_cicd',
+    description:"Version control and CI/CD tooling — GitHub, GitLab, Control-M — for keeping pipelines reviewed, tested, and running on schedule.",
+    columns:[{k:'stack',v:'GitHub, GitLab, Control-M'}],
+    sql:"select * from stg_github_cicd where pipeline_status = 'green'",
+    tags:['tool'], depends_on:['src_pg_product_supply'], links:[], tests:[] },
+
+  // ---------------- INTERMEDIATE ----------------
+  { id:'int_ibm_senior_data_engineer', layer:'intermediate', name:'int_ibm_senior_data_engineer',
+    description:"Senior Data Engineer (Contract) at IBM, remote from Texas, USA. End-to-end ownership of a channel data platform and a legacy-to-Snowflake migration for a $42B financial insurance client, plus co-founding an AI-assisted engineering workflow used across the team.",
+    columns:[{k:'role',v:'Senior Data Engineer (Contract)'},{k:'company',v:'IBM'},{k:'duration',v:'Apr 2026 – Projected Oct 2026'},{k:'stack',v:'Python, SQL, dbt, Snowflake, Airflow'}],
+    sql:"select * from int_ibm_senior_data_engineer where client = 'financial_insurance' and scale = '80M_calls_yearly'",
+    tags:['banking','python','sql'], depends_on:['stg_python','stg_sql','stg_dbt','stg_snowflake','stg_airflow','stg_github_cicd'], links:[], tests:[] },
+
+  { id:'int_quantified_advertising_ae', layer:'intermediate', name:'int_quantified_advertising_ae',
+    description:"Business Analyst / Analytics Engineer (Contract) at Quantified Advertising, remote from New York, USA. Built an ad-performance analytics platform in under 3 weeks for a $6B telehealth client, and deployed marketing-touchpoint tracking that measurably reduced churn.",
+    columns:[{k:'role',v:'Business Analyst, Analytics Engineer (Contract)'},{k:'company',v:'Quantified Advertising'},{k:'duration',v:'Jan 2026 – Apr 2026'},{k:'stack',v:'Python, dashboards, marketing analytics'}],
+    sql:"select * from int_quantified_advertising_ae where turnaround_days < 21",
+    tags:['marketing','python'], depends_on:['stg_python','stg_sql','stg_streamlit'], links:[], tests:[] },
+
+  { id:'int_henkel_digital_strategy', layer:'intermediate', name:'int_henkel_digital_strategy',
+    description:"Digital Strategy Analyst at Henkel, supporting the Cairo, Egypt office from Manila. Focused on order-to-cash vendor reconciliation across fragmented ERP, customer, and vendor portal data sources.",
+    columns:[{k:'role',v:'Digital Strategy Analyst'},{k:'company',v:'Henkel (for Cairo office)'},{k:'duration',v:'May 2025 – Dec 2025'},{k:'stack',v:'Python, ERP integrations'}],
+    sql:"select * from int_henkel_digital_strategy where process = 'order_to_cash'",
+    tags:['supply_chain','python'], depends_on:['stg_python','stg_vba_shell'], links:[], tests:[] },
+
+  { id:'int_henkel_bi_analyst', layer:'intermediate', name:'int_henkel_bi_analyst',
+    description:"Business Intelligence Analyst at Henkel Manila. Built the Dispute Management Tool for inbound trucking stakeholders and led OTIF visibility work across global plants with planning and performance teams.",
+    columns:[{k:'role',v:'Business Intelligence Analyst'},{k:'company',v:'Henkel (Manila)'},{k:'duration',v:'Jan 2023 – Apr 2025'},{k:'stack',v:'SQL, VBA, PowerBI/Looker'}],
+    sql:"select * from int_henkel_bi_analyst where kpi = 'otif' or process = 'dispute_management'",
+    tags:['supply_chain'], depends_on:['stg_sql','stg_vba_shell','stg_streamlit'], links:[], tests:[] },
+
+  // ---------------- MARTS ----------------
+  { id:'fct_channel_data_platform', layer:'mart', name:'fct_channel_data_platform',
+    description:"A channel data platform for a $42B Financial Insurance client, presenting customer service analytics across 80M yearly calls. Partnered with the product owner and 3 business analysts over 12 weeks; identified blockers (shifting requirements, data quality, infra/access delays), ran alignment sessions, wrote documentation, and implemented data testing frameworks.",
+    columns:[{k:'client',v:'Financial Insurance, $42B'},{k:'scale',v:'80M calls / year'},{k:'team',v:'Product owner + 3 BAs'},{k:'duration',v:'12 weeks'}],
+    sql:"select impact\nfrom fct_channel_data_platform\nwhere calls_analyzed > 80000000\n  and blockers_resolved = true",
+    tags:['banking','favorite'], depends_on:['int_ibm_senior_data_engineer','stg_dbt','stg_snowflake'], links:[{label:'LinkedIn', url:'https://www.linkedin.com/in/jameslimpin/'}],
+    tests:['not_null: shipped_to_prod'] },
+
+  { id:'fct_customer_journey_snowflake', layer:'mart', name:'fct_customer_journey_snowflake',
+    description:"Databases built with Python, SQL, and dbt analyzing customer journeys across 14M customers, migrating legacy infrastructure to Snowflake — 10x faster query performance and 80% lower ops overhead. Maintained 100% alignment between business logic and implementation via daily standups and weekly pipeline reviews.",
+    columns:[{k:'customers_analyzed',v:'14,000,000'},{k:'query_speedup',v:'10x'},{k:'ops_overhead',v:'-80%'}],
+    sql:"select customer_id, journey_stage\nfrom fct_customer_journey_snowflake\nwhere query_speedup >= 10 -- this one was hard →",
+    tags:['banking','snowflake','favorite'], depends_on:['int_ibm_senior_data_engineer','stg_snowflake','stg_python'], links:[{label:'LinkedIn', url:'https://www.linkedin.com/in/jameslimpin/'}],
+    tests:['unique: customer_id'] },
+
+  { id:'dim_ai_engineer_framework', layer:'mart', name:'dim_ai_engineer_framework',
+    description:"Co-established IBM's first AI-working-with-engineer hybrid project framework with 2 other engineers — standardized rules for data contracts, source-to-target mappings, and agentic design guidelines. Laid the foundation for copilot-assisted development, applied on the first 2 projects, cutting project timelines by 50% immediately.",
+    columns:[{k:'co_founders',v:'3 engineers'},{k:'timeline_impact',v:'-50%'},{k:'artifacts',v:'data contracts, source-to-target maps, agentic rules'}],
+    sql:"select timeline_reduction from dim_ai_engineer_framework where adoption = 'first_2_projects' -- ✨ favorite",
+    tags:['banking','ai','favorite'], depends_on:['int_ibm_senior_data_engineer'], links:[{label:'LinkedIn', url:'https://www.linkedin.com/in/jameslimpin/'}],
+    tests:[] },
+
+  { id:'fct_ad_performance_platform', layer:'mart', name:'fct_ad_performance_platform',
+    description:"An analytics platform built in under 3 weeks with Python to monitor ad material performance across 5 platforms for a $6B telehealth client. Requirements gathered directly from C-suite and marketing team interviews; led weekly stand-ups that established KPIs and reporting cadence.",
+    columns:[{k:'client',v:'Telehealth, $6B'},{k:'platforms_monitored',v:'5'},{k:'build_time',v:'< 3 weeks'}],
+    sql:"select platform, performance_score\nfrom fct_ad_performance_platform\nwhere build_days < 21",
+    tags:['marketing'], depends_on:['int_quantified_advertising_ae','stg_python'], links:[{label:'LinkedIn', url:'https://www.linkedin.com/in/jameslimpin/'}],
+    tests:[] },
+
+  { id:'dim_marketing_dashboard', layer:'mart', name:'dim_marketing_dashboard',
+    description:"A customized cross-platform marketing analytics dashboard for a 3-person creative ads team, tracking 50+ campaigns simultaneously. Automated a 3-hour manual process by 90%+, saving 20 man-hours a month and unlocking new insights like ad-element analysis and cohort segmentation.",
+    columns:[{k:'campaigns_tracked',v:'50+'},{k:'automation',v:'90%+ of pre-work'},{k:'time_saved',v:'20 hrs / month'}],
+    sql:"select ad_element, conversion_rate\nfrom dim_marketing_dashboard\norder by conversion_rate desc",
+    tags:['marketing','favorite'], depends_on:['int_quantified_advertising_ae','stg_streamlit'], links:[{label:'LinkedIn', url:'https://www.linkedin.com/in/jameslimpin/'}],
+    tests:['not_null: campaign_id'] },
+
+  { id:'fct_churn_reduction_tracking', layer:'mart', name:'fct_churn_reduction_tracking',
+    description:"Email and SMS marketing tracking to identify high-impact touchpoints across the customer journey for 1.5M customers. Improvements shipped immediately: winbacks up 20%, churn down from 12% to 9%.",
+    columns:[{k:'customers',v:'1,500,000'},{k:'winback_lift',v:'+20%'},{k:'churn_change',v:'12% → 9%'}],
+    sql:"select touchpoint, churn_rate\nfrom fct_churn_reduction_tracking\nwhere churn_rate < 0.09",
+    tags:['marketing'], depends_on:['int_quantified_advertising_ae'], links:[{label:'LinkedIn', url:'https://www.linkedin.com/in/jameslimpin/'}],
+    tests:[] },
+
+  { id:'fct_vendor_reconciliation_pipeline', layer:'mart', name:'fct_vendor_reconciliation_pipeline',
+    description:"A data pipeline for order-to-cash vendor reconciliation spanning ERP, customer, and vendor portal data sources, with custom Python extraction scripts — cutting process time by 80% across thousands of vendor templates.",
+    columns:[{k:'templates_processed',v:'thousands'},{k:'time_reduction',v:'80%'},{k:'sources',v:'ERP, customer portal, vendor portal'}],
+    sql:"select vendor_id, reconciled\nfrom fct_vendor_reconciliation_pipeline\nwhere process_time_reduction > 0.8",
+    tags:['supply_chain'], depends_on:['int_henkel_digital_strategy','stg_python'], links:[{label:'LinkedIn', url:'https://www.linkedin.com/in/jameslimpin/'}],
+    tests:[] },
+
+  { id:'fct_dispute_management_tool', layer:'mart', name:'fct_dispute_management_tool',
+    description:"Dispute Management Tool built with transport analysts, automating detention fee computation, invoice validation, and dispute resolution for inbound trucking stakeholders. Resolution accuracy up 98%, processing time down 90%, and ~1M EUR recovered from disputed invoices in one year.",
+    columns:[{k:'accuracy_improvement',v:'+98%'},{k:'processing_time',v:'-90%'},{k:'recovered',v:'~1,000,000 EUR / year'}],
+    sql:"select impact from fct_dispute_management_tool where latency_reduced > 0.6 -- ✨ favorite",
+    tags:['supply_chain','favorite'], depends_on:['int_henkel_bi_analyst'], links:[{label:'LinkedIn', url:'https://www.linkedin.com/in/jameslimpin/'}],
+    tests:['not_null: dispute_id','unique: dispute_id'] },
+
+  { id:'dim_otif_visibility', layer:'mart', name:'dim_otif_visibility',
+    description:"Global raw and packaging material visibility platform improving OTIF (on-time-in-full) metrics, built with planning teams and performance managers — defined KPIs and delivery metrics, and tracked warehouse performance across key global plants.",
+    columns:[{k:'scope',v:'global plants'},{k:'kpi',v:'OTIF'},{k:'stakeholders',v:'planning teams, performance managers'}],
+    sql:"select plant, otif_score from dim_otif_visibility order by otif_score desc",
+    tags:['supply_chain'], depends_on:['int_henkel_bi_analyst'], links:[{label:'LinkedIn', url:'https://www.linkedin.com/in/jameslimpin/'}],
+    tests:[] },
+
+  // ---------------- EXPOSURES ----------------
+  { id:'exp_resume', layer:'exposure', name:'exp_resume',
+    description:"The one-page version of this entire graph. PDF, no Rough.js required.",
+    columns:[{k:'format',v:'PDF'}], sql:"select * from exp_resume -- download me",
+    tags:['exposure'], depends_on:['fct_channel_data_platform','fct_customer_journey_snowflake','fct_dispute_management_tool'],
+    links:[{label:'Open resume', url:'https://drive.google.com/file/d/1ZoSMU_Y5_H8q8kKvbUvFFV66RxnGUusn/view?usp=sharing'}], tests:[] },
+
+  { id:'exp_linkedin', layer:'exposure', name:'exp_linkedin',
+    description:"Professional lineage, LinkedIn edition. Endorsements not verified by dbt tests (yet).",
+    columns:[{k:'platform',v:'LinkedIn'}], sql:"select * from exp_linkedin where connections > 0",
+    tags:['exposure'], depends_on:['dim_ai_engineer_framework','dim_marketing_dashboard'],
+    links:[{label:'View LinkedIn', url:'https://www.linkedin.com/in/jameslimpin/'}], tests:[] },
+
+  { id:'exp_github', layer:'exposure', name:'exp_github',
+    description:"Where the code that built this very DAG (and everything else) lives. Link coming soon — ping me if you want the repo early.",
+    columns:[{k:'platform',v:'GitHub'}], sql:"select * from exp_github where public = true",
+    tags:['exposure'], depends_on:['fct_ad_performance_platform','fct_vendor_reconciliation_pipeline'],
+    links:[{label:'GitHub (coming soon)', url:'#'}], tests:[] },
+
+  { id:'exp_blog', layer:'exposure', name:'exp_blog',
+    description:"Notes on pipelines, dbt, and the occasional AI-assisted engineering experiment. Coming soon.",
+    columns:[{k:'platform',v:'Blog'}], sql:"select * from exp_blog where published = false -- wip",
+    tags:['exposure'], depends_on:['dim_otif_visibility','fct_churn_reduction_tracking'],
+    links:[{label:'Blog (coming soon)', url:'#'}], tests:[] },
+
+  { id:'exp_contact', layer:'exposure', name:'exp_contact',
+    description:"The bottom line of this whole graph: let's build something. Reach out for contract, full-time, or 'I just want to talk about dbt' conversations.",
+    columns:[{k:'email',v:'jameslimpin@gmail.com'},{k:'phone',v:'+63 915 266 9433'},{k:'response_time',v:'usually < 24h'}],
+    sql:"select * from exp_contact where opportunity = 'yes' and you.hire_me = true",
+    tags:['exposure','favorite'], depends_on:['fct_channel_data_platform','fct_dispute_management_tool','fct_ad_performance_platform'],
+    links:[{label:'Email me', url:'mailto:jameslimpin@gmail.com'}], tests:[] },
+];
+
+const modelsById = Object.fromEntries(models.map(m => [m.id, m]));
+models.forEach(m => { m.children = []; });
+models.forEach(m => { (m.depends_on||[]).forEach(pid => { if(modelsById[pid]) modelsById[pid].children.push(m.id); }); });
+
+function ancestors(id, acc=new Set()){
+  const m = modelsById[id]; if(!m) return acc;
+  (m.depends_on||[]).forEach(pid => { if(!acc.has(pid)){ acc.add(pid); ancestors(pid, acc); } });
+  return acc;
+}
+function descendants(id, acc=new Set()){
+  const m = modelsById[id]; if(!m) return acc;
+  (m.children||[]).forEach(cid => { if(!acc.has(cid)){ acc.add(cid); descendants(cid, acc); } });
+  return acc;
+}
+
+/* =========================================================================
+   LAYOUT with dagre
+   ========================================================================= */
+const isMobile = () => window.innerWidth <= 760;
+const g = new dagre.graphlib.Graph();
+g.setGraph({ rankdir: isMobile() ? 'TB' : 'LR', nodesep: 34, ranksep: 90, marginx: 40, marginy: 40 });
+g.setDefaultEdgeLabel(() => ({}));
+
+const NODE_W = 158, NODE_H = 46;
+models.forEach(m => g.setNode(m.id, { width: NODE_W, height: NODE_H }));
+models.forEach(m => (m.depends_on||[]).forEach(pid => { if(modelsById[pid]) g.setEdge(pid, m.id); }));
+dagre.layout(g);
+
+models.forEach(m => {
+  const n = g.node(m.id);
+  m.x = n.x; m.y = n.y;
+  m.rot = (Math.random()*4 - 2).toFixed(2);
+});
+
+/* =========================================================================
+   RENDER
+   ========================================================================= */
+const svg = document.getElementById('dag-svg');
+const zoomLayer = document.getElementById('zoom-layer');
+const nodesLayer = document.getElementById('nodes-layer');
+const edgesLayer = document.getElementById('edges-layer');
+const doodleLayer = document.getElementById('doodle-layer');
+const svgNS = 'http://www.w3.org/2000/svg';
+const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+function layerColors(layer){
+  const map = {
+    source: ['--src-fill','--src-stroke'],
+    staging: ['--stg-fill','--stg-stroke'],
+    intermediate: ['--int-fill','--int-stroke'],
+    mart: ['--mart-fill','--mart-stroke'],
+    exposure: ['--exp-fill','--exp-stroke'],
+  };
+  const cs = getComputedStyle(document.documentElement);
+  const [fv, sv] = map[layer];
+  return { fill: cs.getPropertyValue(fv).trim(), stroke: cs.getPropertyValue(sv).trim() };
+}
+
+let rc = rough.svg(svg);
+
+function makeNodeShape(m){
+  const { fill, stroke } = layerColors(m.layer);
+  const opts = {
+    fill, fillStyle: 'hachure', hachureGap: 4.5, fillWeight: 1.4,
+    stroke, strokeWidth: 1.8, roughness: 1.6, bowing: 1.2,
+    seed: hashSeed(m.id)
+  };
+  return rc.rectangle(-NODE_W/2, -NODE_H/2, NODE_W, NODE_H, opts);
+}
+function hashSeed(str){
+  let h = 0;
+  for(let i=0;i<str.length;i++){ h = (h*31 + str.charCodeAt(i)) >>> 0; }
+  return (h % 2000) + 1;
+}
+
+const nodeEls = {};
+models.forEach(m => {
+  const gEl = document.createElementNS(svgNS,'g');
+  gEl.setAttribute('class','node-g');
+  gEl.setAttribute('tabindex','0');
+  gEl.setAttribute('role','button');
+  gEl.setAttribute('aria-label', `${m.name}, ${m.layer} model. ${m.description}`);
+  gEl.setAttribute('data-id', m.id);
+  gEl.setAttribute('transform', `translate(${m.x},${m.y}) rotate(${m.rot})`);
+
+  const shape = makeNodeShape(m);
+  shape.setAttribute('class','node-shape');
+  gEl.appendChild(shape);
+
+  const label = document.createElementNS(svgNS,'text');
+  label.setAttribute('class','node-label');
+  label.setAttribute('text-anchor','middle');
+  label.setAttribute('x',0); label.setAttribute('y', m.layer==='source' ? 3 : -2);
+  label.textContent = m.name.length > 21 ? m.name.slice(0,20)+'…' : m.name;
+  gEl.appendChild(label);
+
+  if(m.layer !== 'source'){
+    const sub = document.createElementNS(svgNS,'text');
+    sub.setAttribute('class','node-sublabel');
+    sub.setAttribute('text-anchor','middle');
+    sub.setAttribute('x',0); sub.setAttribute('y', 13);
+    sub.textContent = m.layer;
+    gEl.appendChild(sub);
+  }
+
+  if(m.tests && m.tests.length){
+    const badge = document.createElementNS(svgNS,'g');
+    badge.setAttribute('class','test-badge');
+    badge.setAttribute('transform', `translate(${NODE_W/2 - 6}, ${-NODE_H/2 + 4})`);
+    const circ = document.createElementNS(svgNS,'circle');
+    circ.setAttribute('r','8');
+    badge.appendChild(circ);
+    const check = document.createElementNS(svgNS,'text');
+    check.setAttribute('text-anchor','middle'); check.setAttribute('y','4'); check.setAttribute('x','0');
+    check.textContent = '✓';
+    badge.appendChild(check);
+    const title = document.createElementNS(svgNS,'title');
+    title.textContent = m.tests.join(', ');
+    badge.appendChild(title);
+    gEl.appendChild(badge);
+  }
+
+  nodesLayer.appendChild(gEl);
+  nodeEls[m.id] = gEl;
+
+  gEl.addEventListener('mouseenter', () => highlightLineage(m.id));
+  gEl.addEventListener('mouseleave', () => clearHighlight());
+  gEl.addEventListener('click', () => openPanel(m.id));
+  gEl.addEventListener('keydown', (e) => {
+    if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); openPanel(m.id); }
+  });
+  gEl.addEventListener('focus', () => highlightLineage(m.id));
+  gEl.addEventListener('blur', () => clearHighlight());
+});
+
+/* Edges */
+function edgePathD(p, c){
+  const pm = modelsById[p], cm = modelsById[c];
+  const mobile = isMobile();
+  let x1,y1,x2,y2, mx1,my1,mx2,my2;
+  if(mobile){
+    x1 = pm.x; y1 = pm.y + NODE_H/2;
+    x2 = cm.x; y2 = cm.y - NODE_H/2;
+    mx1 = x1; my1 = y1 + (y2-y1)*0.4;
+    mx2 = x2; my2 = y2 - (y2-y1)*0.4;
+  } else {
+    x1 = pm.x + NODE_W/2; y1 = pm.y;
+    x2 = cm.x - NODE_W/2; y2 = cm.y;
+    mx1 = x1 + (x2-x1)*0.4; my1 = y1;
+    mx2 = x2 - (x2-x1)*0.4; my2 = y2;
+  }
+  return `M${x1},${y1} C${mx1},${my1} ${mx2},${my2} ${x2},${y2}`;
+}
+
+const edgeEls = {};
+models.forEach(m => {
+  (m.depends_on||[]).forEach(pid => {
+    if(!modelsById[pid]) return;
+    const key = pid + '->' + m.id;
+    const rough_ = rc.path(edgePathD(pid, m.id), {
+      stroke: getComputedStyle(document.documentElement).getPropertyValue('--ink-soft').trim(),
+      strokeWidth: 1.5, roughness: 1.3, bowing: 0.6, seed: hashSeed(key)
+    });
+    rough_.setAttribute('class','edge-path');
+    rough_.setAttribute('data-key', key);
+    rough_.setAttribute('data-parent', pid);
+    rough_.setAttribute('data-child', m.id);
+    edgesLayer.appendChild(rough_);
+    edgeEls[key] = rough_;
+
+    // arrowhead
+    const cm = modelsById[m.id];
+    const angle = isMobile() ? 90 : 0;
+    const tipX = isMobile() ? cm.x : cm.x - NODE_W/2;
+    const tipY = isMobile() ? cm.y - NODE_H/2 : cm.y;
+    const arrow = rc.polygon([
+      [tipX, tipY],
+      [isMobile()? tipX-5 : tipX-8, isMobile()? tipY-8 : tipY-4],
+      [isMobile()? tipX+5 : tipX-8, isMobile()? tipY-8 : tipY+4]
+    ], { fill: getComputedStyle(document.documentElement).getPropertyValue('--ink-soft').trim(), fillStyle:'solid', stroke:'none', seed: hashSeed(key+'a') });
+    arrow.setAttribute('class','edge-arrow');
+    arrow.setAttribute('data-key', key);
+    edgesLayer.appendChild(arrow);
+  });
+});
+
+/* Doodles */
+function addDoodle(x, y, text, opts={}){
+  const t = document.createElementNS(svgNS,'text');
+  t.setAttribute('class','doodle');
+  t.setAttribute('x',x); t.setAttribute('y',y);
+  t.setAttribute('font-size', opts.size || 13);
+  t.setAttribute('transform', `rotate(${opts.rot||0} ${x} ${y})`);
+  t.textContent = text;
+  doodleLayer.appendChild(t);
+}
+if(!isMobile()){
+  const srcNode = modelsById['src_up_diliman'];
+  addDoodle(srcNode.x - 90, srcNode.y - 70, '🙋 hi, that\'s me →', { rot:-4 });
+  const favMart = modelsById['fct_dispute_management_tool'];
+  if(favMart) addDoodle(favMart.x - 10, favMart.y - 40, '✨ favorite', { rot:-3, size:12 });
+  const hardOne = modelsById['fct_customer_journey_snowflake'];
+  if(hardOne) addDoodle(hardOne.x + 10, hardOne.y + 50, 'this one was hard →', { rot:2, size:11 });
+  addDoodle(modelsById['stg_sql'].x - 20, modelsById['stg_sql'].y - 40, '🦆', { size:20 });
+  addDoodle(modelsById['exp_contact'].x - 10, modelsById['exp_contact'].y - 55, '👉 start here?', { rot:-2, size:12 });
+}
+
+/* =========================================================================
+   PAN & ZOOM
+   ========================================================================= */
+const zoom = d3.zoom().scaleExtent([0.3, 2.5]).on('zoom', (ev) => {
+  zoomLayer.setAttribute('transform', ev.transform);
+});
+d3.select(svg).call(zoom);
+svg.addEventListener('pointerdown', () => svg.classList.add('grabbing'));
+window.addEventListener('pointerup', () => svg.classList.remove('grabbing'));
+
+function fitToScreen(){
+  const bbox = nodesLayer.getBBox();
+  const svgRect = svg.getBoundingClientRect();
+  const pad = 60;
+  let scale, tx, ty;
+  if(isMobile()){
+    // readable fixed scale; the DAG is wider than the screen, so the visitor
+    // pans/pinch-zooms to explore rather than seeing a tiny full overview.
+    // Start centered on the sources (top rank) so the story reads top-to-bottom.
+    scale = 0.82;
+    const sourceNodes = models.filter(m => m.layer === 'source');
+    const srcLeftX = Math.min(...sourceNodes.map(m=>m.x)) - NODE_W/2;
+    const srcTopY = Math.min(...sourceNodes.map(m=>m.y)) - NODE_H/2;
+    tx = 20 - srcLeftX*scale;
+    ty = 195 - srcTopY*scale;
+  } else {
+    scale = Math.min(
+      (svgRect.width - pad*2) / bbox.width,
+      (svgRect.height - pad*2 - 100) / bbox.height,
+      1.1
+    );
+    tx = (svgRect.width - bbox.width*scale)/2 - bbox.x*scale;
+    ty = (svgRect.height - bbox.height*scale)/2 - bbox.y*scale + 30;
+  }
+  d3.select(svg).call(zoom.transform, d3.zoomIdentity.translate(tx,ty).scale(scale));
+}
+requestAnimationFrame(fitToScreen);
+window.addEventListener('resize', () => { /* keep layout stable; user can re-pan */ });
+
+/* =========================================================================
+   HOVER LINEAGE HIGHLIGHT
+   ========================================================================= */
+function highlightLineage(id){
+  const up = ancestors(id);
+  const down = descendants(id);
+  const involved = new Set([id, ...up, ...down]);
+
+  Object.entries(nodeEls).forEach(([mid, el]) => {
+    el.classList.toggle('faded', !involved.has(mid));
+    el.classList.toggle('not-faded', involved.has(mid));
+  });
+  Object.values(edgeEls).forEach(el => {
+    const p = el.getAttribute('data-parent'), c = el.getAttribute('data-child');
+    const on = involved.has(p) && involved.has(c);
+    el.classList.toggle('faded', !on);
+    el.classList.toggle('highlighted', on && !prefersReducedMotion);
+  });
+  document.querySelectorAll('.edge-arrow').forEach(el => {
+    const key = el.getAttribute('data-key');
+    const [p,c] = key.split('->');
+    el.classList.toggle('faded', !(involved.has(p) && involved.has(c)));
+  });
+}
+function clearHighlight(){
+  if(activeSelectorSet) { applySelectorHighlight(activeSelectorSet); return; }
+  Object.values(nodeEls).forEach(el => { el.classList.remove('faded'); el.classList.remove('not-faded'); });
+  Object.values(edgeEls).forEach(el => { el.classList.remove('faded'); el.classList.remove('highlighted'); });
+  document.querySelectorAll('.edge-arrow').forEach(el => el.classList.remove('faded'));
+}
+
+/* =========================================================================
+   SELECTOR BAR (dbt-style)
+   ========================================================================= */
+let activeSelectorSet = null;
+
+function runSelector(expr){
+  expr = expr.trim();
+  if(!expr){ activeSelectorSet = null; clearHighlight(); return; }
+
+  let result = new Set();
+  if(expr.startsWith('tag:')){
+    const tag = expr.slice(4).trim();
+    models.forEach(m => { if((m.tags||[]).includes(tag)) result.add(m.id); });
+  } else if(expr.startsWith('+') && expr.endsWith('+') && expr.length > 1){
+    const id = expr.slice(1,-1);
+    if(modelsById[id]){ result.add(id); ancestors(id).forEach(x=>result.add(x)); descendants(id).forEach(x=>result.add(x)); }
+  } else if(expr.startsWith('+')){
+    const id = expr.slice(1);
+    if(modelsById[id]){ result.add(id); ancestors(id).forEach(x=>result.add(x)); }
+  } else if(expr.endsWith('+')){
+    const id = expr.slice(0,-1);
+    if(modelsById[id]){ result.add(id); descendants(id).forEach(x=>result.add(x)); }
+  } else if(modelsById[expr]){
+    result.add(expr);
+  } else {
+    // fuzzy: substring match on id/name
+    models.forEach(m => { if(m.id.includes(expr)) result.add(m.id); });
+  }
+
+  activeSelectorSet = result;
+  applySelectorHighlight(result);
+}
+
+function applySelectorHighlight(set){
+  Object.entries(nodeEls).forEach(([mid, el]) => {
+    el.classList.toggle('faded', !set.has(mid));
+    el.classList.toggle('not-faded', set.has(mid));
+  });
+  Object.values(edgeEls).forEach(el => {
+    const p = el.getAttribute('data-parent'), c = el.getAttribute('data-child');
+    const on = set.has(p) && set.has(c);
+    el.classList.toggle('faded', !on);
+  });
+}
+
+const selectorInput = document.getElementById('selectorInput');
+document.getElementById('selectorGoBtn').addEventListener('click', () => runSelector(selectorInput.value));
+selectorInput.addEventListener('keydown', (e) => { if(e.key === 'Enter') runSelector(selectorInput.value); });
+document.getElementById('selectorClearBtn').addEventListener('click', () => { selectorInput.value=''; activeSelectorSet=null; clearHighlight(); });
+
+const exampleChips = [
+  '+fct_dispute_management_tool',
+  'stg_python+',
+  'tag:banking',
+  'tag:marketing',
+  'tag:favorite',
+];
+const chipsRow = document.getElementById('chipsRow');
+exampleChips.forEach(c => {
+  const b = document.createElement('button');
+  b.className = 'chip'; b.type='button'; b.textContent = c;
+  b.addEventListener('click', () => { selectorInput.value = c; runSelector(c); });
+  chipsRow.appendChild(b);
+});
+
+/* =========================================================================
+   SIDE PANEL / BOTTOM SHEET
+   ========================================================================= */
+const sidePanel = document.getElementById('side-panel');
+const bottomSheet = document.getElementById('bottom-sheet');
+let lastFocusedNode = null;
+
+function renderPanelContent(prefix, m){
+  document.getElementById(prefix+'Layer').textContent = m.layer + (m.id.startsWith('stg_') ? ' · stg_' : m.id.startsWith('int_') ? ' · int_' : (m.id.startsWith('fct_')||m.id.startsWith('dim_')) ? ' · '+m.id.split('_')[0]+'_' : '');
+  document.getElementById(prefix+'Title').textContent = m.name;
+  const tagsEl = document.getElementById(prefix+'Tags');
+  tagsEl.innerHTML = '';
+  (m.tags||[]).forEach(t => {
+    const s = document.createElement('span'); s.className='tag-pill'; s.textContent = t; tagsEl.appendChild(s);
+  });
+
+  const descEl = document.getElementById((prefix==='panel'?'tab-description':'sheet-tab-description'));
+  descEl.innerHTML = '';
+  const p = document.createElement('p'); p.textContent = m.description; descEl.appendChild(p);
+  if(m.links && m.links.length){
+    const linksWrap = document.createElement('div'); linksWrap.className='panel-links';
+    m.links.forEach(l => {
+      const a = document.createElement('a'); a.href = l.url; a.textContent = l.label;
+      if(l.url.startsWith('http')) { a.target='_blank'; a.rel='noopener noreferrer'; }
+      linksWrap.appendChild(a);
+    });
+    descEl.appendChild(linksWrap);
+  }
+
+  const colEl = document.getElementById((prefix==='panel'?'tab-columns':'sheet-tab-columns'));
+  colEl.innerHTML = '';
+  const table = document.createElement('table');
+  const tbody = document.createElement('tbody');
+  (m.columns||[]).forEach(row => {
+    const tr = document.createElement('tr');
+    const td1 = document.createElement('td'); td1.textContent = row.k; td1.style.fontWeight='bold'; td1.style.width='38%';
+    const td2 = document.createElement('td'); td2.textContent = row.v;
+    tr.appendChild(td1); tr.appendChild(td2); tbody.appendChild(tr);
+  });
+  table.appendChild(tbody); colEl.appendChild(table);
+  if(m.tests && m.tests.length){
+    const h = document.createElement('p'); h.style.marginTop='14px'; h.innerHTML = '<strong>tests:</strong>';
+    colEl.appendChild(h);
+    const ul = document.createElement('ul');
+    m.tests.forEach(t => { const li = document.createElement('li'); li.textContent = '✓ '+t; ul.appendChild(li); });
+    colEl.appendChild(ul);
+  }
+
+  const codeEl = document.getElementById((prefix==='panel'?'tab-code':'sheet-tab-code'));
+  codeEl.innerHTML = '';
+  const pre = document.createElement('pre'); pre.textContent = m.sql; codeEl.appendChild(pre);
+
+  const linEl = document.getElementById((prefix==='panel'?'tab-lineage':'sheet-tab-lineage'));
+  linEl.innerHTML = '';
+  const wrap = document.createElement('div'); wrap.className = 'mini-lineage';
+  const parentsCol = document.createElement('div'); parentsCol.className = 'mini-col';
+  (m.depends_on && m.depends_on.length ? m.depends_on : ['—']).forEach(pid => {
+    const n = document.createElement('div'); n.className='mini-node'; n.textContent = pid;
+    if(modelsById[pid]){ n.setAttribute('tabindex','0'); n.setAttribute('role','button'); n.addEventListener('click', () => openPanel(pid)); n.addEventListener('keydown', e=>{if(e.key==='Enter') openPanel(pid);}); }
+    parentsCol.appendChild(n);
+  });
+  const centerCol = document.createElement('div'); centerCol.className = 'mini-col center';
+  const selfN = document.createElement('div'); selfN.className='mini-node self'; selfN.textContent = m.name;
+  centerCol.appendChild(selfN);
+  const childrenCol = document.createElement('div'); childrenCol.className = 'mini-col';
+  (m.children && m.children.length ? m.children : ['—']).forEach(cid => {
+    const n = document.createElement('div'); n.className='mini-node'; n.textContent = cid;
+    if(modelsById[cid]){ n.setAttribute('tabindex','0'); n.setAttribute('role','button'); n.addEventListener('click', () => openPanel(cid)); n.addEventListener('keydown', e=>{if(e.key==='Enter') openPanel(cid);}); }
+    childrenCol.appendChild(n);
+  });
+  wrap.appendChild(parentsCol);
+  const arrow1 = document.createElement('div'); arrow1.className='mini-arrow'; arrow1.textContent='→'; wrap.appendChild(arrow1);
+  wrap.appendChild(centerCol);
+  const arrow2 = document.createElement('div'); arrow2.className='mini-arrow'; arrow2.textContent='→'; wrap.appendChild(arrow2);
+  wrap.appendChild(childrenCol);
+  linEl.appendChild(wrap);
+}
+
+function setupTabs(tabsId, prefix){
+  const tabs = document.getElementById(tabsId);
+  tabs.querySelectorAll('.panel-tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      tabs.querySelectorAll('.panel-tab-btn').forEach(b => b.setAttribute('aria-selected', b===btn ? 'true':'false'));
+      const target = btn.getAttribute('data-tab');
+      ['description','columns','code','lineage'].forEach(t => {
+        const el = document.getElementById((prefix==='panel'?'tab-':'sheet-tab-')+t);
+        el.hidden = t !== target;
+      });
+    });
+  });
+}
+setupTabs('panelTabs','panel');
+setupTabs('sheetTabs','sheet');
+
+function openPanel(id){
+  const m = modelsById[id];
+  if(!m) return;
+  lastFocusedNode = document.activeElement;
+  highlightLineage(id);
+  if(isMobile()){
+    renderPanelContent('sheet', m);
+    bottomSheet.classList.add('open');
+    bottomSheet.setAttribute('aria-hidden','false');
+  } else {
+    renderPanelContent('panel', m);
+    sidePanel.classList.add('open');
+    sidePanel.setAttribute('aria-hidden','false');
+    document.getElementById('closePanelBtn').focus();
+  }
+}
+function closePanels(){
+  sidePanel.classList.remove('open'); sidePanel.setAttribute('aria-hidden','true');
+  bottomSheet.classList.remove('open'); bottomSheet.setAttribute('aria-hidden','true');
+  clearHighlight();
+  if(lastFocusedNode) lastFocusedNode.focus();
+}
+document.getElementById('closePanelBtn').addEventListener('click', closePanels);
+document.getElementById('closeSheetBtn').addEventListener('click', closePanels);
+document.addEventListener('keydown', (e) => { if(e.key === 'Escape') closePanels(); });
+
+/* =========================================================================
+   THEME TOGGLE
+   ========================================================================= */
+const themeBtn = document.getElementById('themeBtn');
+function setTheme(t){
+  document.documentElement.setAttribute('data-theme', t);
+  themeBtn.setAttribute('aria-pressed', t === 'dark' ? 'true':'false');
+  localStorage.setItem('lineage-theme', t);
+  redrawAll();
+}
+themeBtn.addEventListener('click', () => {
+  const cur = document.documentElement.getAttribute('data-theme');
+  const next = cur === 'dark' ? 'light' : (cur === 'light' ? 'dark' : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'light' : 'dark'));
+  setTheme(next);
+});
+const savedTheme = localStorage.getItem('lineage-theme');
+if(savedTheme) document.documentElement.setAttribute('data-theme', savedTheme);
+
+function redrawAll(){
+  // re-generate rough shapes with new theme colors (cached per node, only regenerated on theme change)
+  models.forEach(m => {
+    const el = nodeEls[m.id];
+    const old = el.querySelector('.node-shape');
+    const fresh = makeNodeShape(m);
+    fresh.setAttribute('class','node-shape');
+    el.replaceChild(fresh, old);
+  });
+  Object.values(edgeEls).forEach(el => el.remove());
+  document.querySelectorAll('.edge-arrow').forEach(el => el.remove());
+  Object.keys(edgeEls).forEach(k => delete edgeEls[k]);
+  models.forEach(m => {
+    (m.depends_on||[]).forEach(pid => {
+      if(!modelsById[pid]) return;
+      const key = pid + '->' + m.id;
+      const rough_ = rc.path(edgePathD(pid, m.id), {
+        stroke: getComputedStyle(document.documentElement).getPropertyValue('--ink-soft').trim(),
+        strokeWidth: 1.5, roughness: 1.3, bowing: 0.6, seed: hashSeed(key)
+      });
+      rough_.setAttribute('class','edge-path');
+      rough_.setAttribute('data-key', key);
+      rough_.setAttribute('data-parent', pid);
+      rough_.setAttribute('data-child', m.id);
+      edgesLayer.appendChild(rough_);
+      edgeEls[key] = rough_;
+      const cm = modelsById[m.id];
+      const tipX = isMobile() ? cm.x : cm.x - NODE_W/2;
+      const tipY = isMobile() ? cm.y - NODE_H/2 : cm.y;
+      const arrow = rc.polygon([
+        [tipX, tipY],
+        [isMobile()? tipX-5 : tipX-8, isMobile()? tipY-8 : tipY-4],
+        [isMobile()? tipX+5 : tipX-8, isMobile()? tipY-8 : tipY+4]
+      ], { fill: getComputedStyle(document.documentElement).getPropertyValue('--ink-soft').trim(), fillStyle:'solid', stroke:'none', seed: hashSeed(key+'a') });
+      arrow.setAttribute('class','edge-arrow');
+      arrow.setAttribute('data-key', key);
+      edgesLayer.appendChild(arrow);
+    });
+  });
+}
+
+/* =========================================================================
+   DBT RUN ANIMATION
+   ========================================================================= */
+const runBtn = document.getElementById('runBtn');
+const terminal = document.getElementById('terminal');
+const layerOrder = ['source','staging','intermediate','mart','exposure'];
+
+function logLine(text, cls){
+  const div = document.createElement('div');
+  div.className = 'line' + (cls ? ' '+cls : '');
+  div.textContent = text;
+  terminal.appendChild(div);
+  terminal.scrollTop = terminal.scrollHeight;
+}
+
+async function runDbtAnimation(){
+  if(runBtn.classList.contains('running')) return;
+  runBtn.classList.add('running');
+  terminal.innerHTML = '';
+  terminal.classList.add('show');
+  logLine('$ dbt run');
+  logLine(`Running with dbt=1.8.0`);
+  await sleep(300);
+
+  Object.values(nodeEls).forEach(el => el.classList.add('faded'));
+
+  let count = 0;
+  const total = models.length;
+  const delay = prefersReducedMotion ? 0 : 220;
+
+  for(const layer of layerOrder){
+    const layerModels = models.filter(m => m.layer === layer);
+    for(const m of layerModels){
+      count++;
+      const el = nodeEls[m.id];
+      el.classList.remove('faded');
+      el.classList.add('not-faded');
+      if(!prefersReducedMotion){
+        const cssBase = `translate(${m.x}px,${m.y}px) rotate(${m.rot}deg)`;
+        el.animate([
+          { transform: cssBase + ' scale(0.85)', opacity: 0.3 },
+          { transform: cssBase + ' scale(1.08)', opacity: 1 },
+          { transform: cssBase + ' scale(1)', opacity: 1 }
+        ], { duration: 320, easing: 'ease-out' });
+      }
+      const kind = m.layer === 'source' ? 'seed' : (m.layer === 'exposure' ? 'exposure' : 'view');
+      logLine(`${count} of ${total} OK created ${kind} ${m.id} .................. [OK in 0.${(2+ (count%5))}s]`, 'ok');
+      await sleep(delay);
+    }
+  }
+  logLine('');
+  logLine('Finished running.', 'done');
+  logLine(`Completed successfully. Done. PASS=${total}`, 'done');
+  runBtn.classList.remove('running');
+
+  const contactEl = nodeEls['exp_contact'];
+  if(contactEl && !prefersReducedMotion){
+    contactEl.animate([
+      { filter:'drop-shadow(0 0 0px var(--ballpoint))' },
+      { filter:'drop-shadow(0 0 10px var(--ballpoint))' },
+      { filter:'drop-shadow(0 0 0px var(--ballpoint))' }
+    ], { duration: 900, iterations: 3 });
+  }
+}
+function sleep(ms){ return new Promise(res => setTimeout(res, ms)); }
+runBtn.addEventListener('click', runDbtAnimation);
+
+/* =========================================================================
+   RESPONSIVE: relayout on orientation/breakpoint change
+   ========================================================================= */
+let currentIsMobile = isMobile();
+window.addEventListener('resize', () => {
+  if(isMobile() !== currentIsMobile){
+    currentIsMobile = isMobile();
+    location.reload();
+  }
+});
+</script>
+</body>
+</html>
